@@ -1,0 +1,159 @@
+\documentclass[12pt,letterpaper]{article}
+\usepackage[spanish,es-nodecimaldot]{babel}
+\usepackage[utf8]{inputenc}
+\usepackage[T1]{fontenc}
+\usepackage{lmodern}
+\usepackage{geometry}
+\geometry{margin=2.5cm}
+\usepackage{setspace}
+\onehalfspacing
+\usepackage{amsmath,amssymb,amsthm,mathtools}
+\usepackage{graphicx}
+\usepackage{booktabs}
+\usepackage{hyperref}
+\hypersetup{colorlinks=true,linkcolor=blue,citecolor=blue,urlcolor=blue}
+\usepackage{enumitem}
+
+% Entornos de teoremas en español
+\newtheorem{theorem}{Teorema}
+\newtheorem{proposition}{Proposición}
+\newtheorem{lemma}{Lema}
+\newtheorem{corollary}{Corolario}
+\theoremstyle{definition}
+\newtheorem{definition}{Definición}
+\theoremstyle{remark}
+\newtheorem{remark}{Observación}
+
+% Comandos útiles
+\newcommand{\R}{\mathbb{R}}
+\newcommand{\norm}[1]{\lVert #1\rVert}
+\newcommand{\abs}[1]{\lvert #1\rvert}
+
+\title{Aplicación del Método de Newton--Raphson para la Resolución de Sistemas No Lineales en una Malla 2D con Condiciones de Frontera}
+\author{Ervin Caravali Ibarra -- 1925648\\Juan Esteban Ortiz Bejarano -- 2410227\\Brayan Camilo Urrea Jurado -- 2410023}
+\date{\today}
+
+\begin{document}
+\maketitle
+
+\begin{abstract}
+Se presenta un desarrollo formal del método de Newton--Raphson para resolver un sistema de ecuaciones no lineales originado de la discretización sobre una malla 2D de dimensiones $5\times 50$ con condiciones de frontera prescritas. El problema, motivado por un modelo de transporte/flujo, se reformula como un problema de equilibrio $R(V)=0$ donde $R:\R^{n}\to\R^{n}$ es el vector de residuales e $n=134$ corresponde al número de incógnitas interiores (tras excluir nodos de frontera y una franja rígida de 10 nodos). Se detalla la estructura dispersa del Jacobiano (a lo sumo cinco entradas no nulas por fila), se establecen condiciones suficientes de convergencia local (tipo Kantoróvich) y unicidad de las soluciones de los sistemas lineales internos (dominancia diagonal o simetría definida positiva). Se discuten consideraciones de complejidad y ensamblaje, así como lineamientos de implementación reproducibles.
+\end{abstract}
+
+\noindent\textbf{Palabras clave:} Newton--Raphson, sistemas no lineales, discretización en malla, Jacobiano disperso, convergencia local, SPD.
+
+\section{Introducción}
+Los métodos de punto fijo y de Newton--Raphson constituyen herramientas fundamentales para la resolución de sistemas no lineales de gran escala que emergen de discretizaciones de ecuaciones diferenciales y modelos de equilibrio. En este informe se formaliza el planteamiento y la solución de un sistema no lineal definido sobre una malla rectangular $5\times 50$, con condiciones de frontera de tipo Dirichlet y una subregión rígida (``viga'') donde las variables están fijadas y no aportan incógnitas.
+
+El documento sintetiza y estructura, en formato académico, el material de trabajo disponible en la rama principal del repositorio de referencia, y provee demostraciones matemáticas formales de los resultados teóricos invocados en el proceso numérico.
+
+\section{Planteamiento del problema}
+Sea un dominio discreto $\Omega_h$ definido por índices $(i,j)$ con $j\in\{0,1,2,3,4\}$ y $i\in\{0,1,\dots,49\}$. Se modela un campo escalar de velocidades $v_{i,j}$ sometido a condiciones de frontera conocidas en el borde de $\Omega_h$ y a restricciones internas que anulan un subconjunto de nodos (``viga''). Denótese por $\mathcal{I}$ el conjunto de índices internos activos (incógnitas) y por $n:=\abs{\mathcal{I}}=134$ el número total de incógnitas luego de excluir frontera y $10$ nodos rígidos consecutivos.
+
+El problema se formula como la búsqueda de $V\in\R^{n}$ tal que
+\begin{equation}
+  R(V) = 0,\qquad R=(R_1,\dots,R_n):\R^n\to\R^n,
+\end{equation}
+donde cada residual $R_m$ corresponde a la ecuación de equilibrio asociada a un nodo interno $(i,j)\in\mathcal{I}$. En discretizaciones de tipo stencil de 5 puntos, cada $R_m$ depende a lo sumo de la variable en el nodo central y sus cuatro vecinos cartesianos.
+
+\section{Modelo matemático y discretización}
+Sin pérdida de generalidad, considérese que el modelo continuo subyacente genera, tras discretización, ecuaciones locales de la forma
+\begin{equation}
+  R_{i,j}(V)\;=\;G\!\left(v_{i,j},v_{i+1,j},v_{i-1,j},v_{i,j+1},v_{i,j-1};\,\theta\right),
+\end{equation}
+con parámetros de problema agrupados en $\theta$ (p.\,ej., paso de malla, coeficientes de transporte o viscosidad efectiva). Las condiciones de frontera fijan $v_{i,j}$ para $(i,j)\notin\mathcal{I}$, por lo que no ingresan como incógnitas.
+
+\begin{proposition}[Estructura dispersa del Jacobiano]
+Sea $R:\R^n\to\R^n$ definido por un stencil de 5 puntos. Entonces el Jacobiano $J(V):=\nabla R(V)$ tiene a lo sumo cinco entradas no nulas por fila, correspondientes a la dependencia de cada residual respecto del nodo central y sus cuatro vecinos. En particular, el grafo de adyacencia de $J$ es planar y local.
+\end{proposition}
+\begin{proof}
+Por hipótesis, cada residual $R_m$ depende de lo sumo de cinco variables: $v_{i,j}$, $v_{i\pm1,j}$ y $v_{i,j\pm1}$, donde $(i,j)$ indexa el nodo asociado a $m$. Por la regla de la cadena, las derivadas parciales $\partial R_m/\partial v_{p,q}$ son nulas para toda pareja $(p,q)$ no incluida en ese conjunto local. Por ende, en la fila $m$ de $J$ sólo pueden aparecer, en el peor caso, cinco entradas no nulas. \qedhere
+\end{proof}
+
+\section{Método de Newton--Raphson}
+Dado un estado $V^{(k)}$, el método de Newton actualiza mediante
+\begin{equation}
+  J\!\left(V^{(k)}\right)\,\Delta V^{(k)} \,=\, -R\!\left(V^{(k)}\right),\qquad V^{(k+1)}\,=\,V^{(k)}+\Delta V^{(k)}.
+\end{equation}
+El sistema lineal interno se resuelve con un método directo disperso o un iterativo apropiado (p.\,ej., gradiente conjugado si $J$ es simétrica definida positiva, o métodos de Krylov generales).
+
+\subsection{Criterios de paro}
+Se adoptan umbrales $\varepsilon_R,\varepsilon_\Delta>0$ y un máximo de iteraciones $k_{\max}$; se detiene cuando $\norm{R(V^{(k)})}\le \varepsilon_R$ o $\norm{\Delta V^{(k)}}\le\varepsilon_\Delta$.
+
+\section{Convergencia local de Newton: resultados formales}
+\begin{theorem}[Kantoróvich, versión clásica]
+Sea $R:\mathcal{D}\subset\R^n\to\R^n$ continuamente diferenciable en un dominio convexo $\mathcal{D}$, con Jacobiano $J(V)$ Lipschitz continuo en $\mathcal{D}$ con constante $L$. Supóngase que existe $V^{(0)}\in\mathcal{D}$ tal que $J(V^{(0)})$ es invertible y
+\begin{equation}
+  \gamma\;:=\;\big\|J(V^{(0)})^{-1}R(V^{(0)})\big\|,\qquad M\;:=\;\sup_{U\in\mathcal{D}}\norm{J(U)^{-1}},\qquad \text{con }\; LM\gamma\,\le\,\tfrac{1}{2}.
+\end{equation}
+Entonces la secuencia de Newton está bien definida, permanece en $\mathcal{D}$ y converge a una solución $V^\ast$ de $R(V)=0$. Además, el error satisface la cota
+\begin{equation}
+  \norm{V^{(k)}-V^\ast}\;\le\;\frac{(1-\sqrt{1-2LM\gamma})^{2^k}}{L M}\,\,\quad\text{(convergencia cuasi-cuadrática)}.
+\end{equation}
+\end{theorem}
+\begin{proof}
+La demostración estándar emplea el mapeo de Newton $\Phi(V)=V-J(V)^{-1}R(V)$ y verifica que, bajo $LM\gamma\le 1/2$, $\Phi$ es una contracción en una bola centrada en $V^{(0)}$ contenida en $\mathcal{D}$. El Lema de Inversa y la continuidad Lipschitz de $J$ garantizan la acotación de $\norm{J(U)^{-1}}$ en dicha bola. Aplicando el Teorema del Punto Fijo de Banach se obtiene existencia y unicidad del punto fijo $V^\ast$ de $\Phi$, que es solución de $R(V)=0$. Las cotas de error se derivan por técnicas estándar (ver, por ejemplo, Ortega y Rheinboldt). \qedhere
+\end{proof}
+
+\begin{proposition}[Unicidad del paso lineal]
+Si, para un $k$ dado, la matriz $J\!\left(V^{(k)}\right)$ es no singular, entonces el sistema lineal del paso de Newton admite una única solución $\Delta V^{(k)}$. En particular, si $J\!\left(V^{(k)}\right)$ es estrictamente diagonalmente dominante por filas o simétrica definida positiva, la solución es única.
+\end{proposition}
+\begin{proof}
+La no singularidad implica unicidad por el Teorema de la Inversa. La estricta dominancia diagonal (criterio de Levy--Desplanques) garantiza no singularidad. Alternativamente, si $J$ es simétrica definida positiva, entonces induce un producto interno y \emph{toda} forma lineal $b$ define un único $\Delta V$ que satisface $J\Delta V=b$ (Lema de Lax--Milgram para matrices finito-dimensionales). \qedhere
+\end{proof}
+
+\section{Lineamientos de ensamblaje y estructura del Jacobiano}
+En una malla regular con stencil de 5 puntos, cada fila de $J$ contiene a lo sumo cinco entradas no nulas. El número total de no nulos escala como $\mathcal{O}(5n)$, lo que favorece el uso de formatos de almacenamiento disperso (CSR/CSC) y precondicionadores locales.
+
+\begin{remark}[Complejidad]
+El costo de ensamblaje del Jacobiano y del residual es $\mathcal{O}(n)$, dado que cada ecuación involucra un número constante de operaciones. La resolución del sistema lineal interno depende del método: directa dispersa (coste superlineal en $n$) o iterativa (cada iteración cuesta $\mathcal{O}(n)$; el número de iteraciones depende del acondicionamiento y del precondicionador).
+\end{remark}
+
+\section{Algoritmo}
+\noindent Dado $V^{(0)}$, tolerancias $\varepsilon_R,\varepsilon_\Delta$ y $k_{\max}$:
+\begin{enumerate}[label=\arabic*.]
+  \item Para $k=0,1,\dots,k_{\max}$:
+  \begin{enumerate}[label=\alph*)]
+    \item Ensamblar $R\!\left(V^{(k)}\right)$ y $J\!\left(V^{(k)}\right)$.
+    \item Resolver $J\!\left(V^{(k)}\right)\,\Delta V^{(k)}=-R\!\left(V^{(k)}\right)$.
+    \item Actualizar $V^{(k+1)}=V^{(k)}+\Delta V^{(k)}$.
+    \item Si $\norm{R(V^{(k+1)})}\le\varepsilon_R$ o $\norm{\Delta V^{(k)}}\le\varepsilon_\Delta$, detener.
+  \end{enumerate}
+\end{enumerate}
+
+\section{Aplicación a la malla $5\times50$ con 134 incógnitas}
+Conforme al material base, el dominio discreto cuenta con $250$ nodos totales, pero solo $3\times 48=144$ nodos interiores son candidatos a incógnita. Se excluye una franja rígida de $10$ nodos consecutivos (``viga''), obteniéndose $n=134$ incógnitas. El Jacobiano resultante es cuadrado $134\times134$ con a lo sumo cinco no nulos por fila.
+
+La implementación debe:
+\begin{itemize}
+  \item Indexar $\mathcal{I}$ y mapear cada par $(i,j)$ a un índice global $m$.
+  \item Ensamblar $R$ y $J$ respetando las condiciones de frontera.
+  \item Emplear almacenamiento disperso y un solucionador lineal adecuado.
+  \item Verificar criterios de paro y, de ser necesario, aplicar control de paso (línea de búsqueda) en problemas fuertemente no lineales.
+\end{itemize}
+
+\section{Resultados y discusión}
+En ausencia de datos cuantitativos adicionales en este documento, se reportan lineamientos cualitativos: la convergencia de Newton se observa típicamente en pocas iteraciones cuando el punto inicial es cercano a la solución y el Jacobiano está bien condicionado. La estructura local del stencil y el tamaño moderado ($n=134$) favorecen tiempos de cómputo bajos por iteración.
+
+\section{Conclusiones}
+Se ha establecido un marco formal y reproducible para la aplicación de Newton--Raphson en sistemas no lineales discretizados sobre mallas regulares, con énfasis en: (i) formulación del residual y su Jacobiano, (ii) resultados de convergencia local de tipo Kantoróvich, y (iii) unicidad de los pasos lineales bajo condiciones verificables (dominancia diagonal o SPD). Este andamiaje teórico respalda la implementación práctica y su extensión a dominios y modelos de mayor complejidad.
+
+\section*{Agradecimientos y reproducción}
+Este informe se elaboró a partir del material disponible en la rama principal del repositorio de trabajo. Para la reproducción, se recomienda compilar este archivo con \LaTeX{} y, en su caso, integrar módulos de cómputo que ensamblen $R$ y $J$ según el modelo específico.
+
+\begin{thebibliography}{9}
+\bibitem{OrtegaRheinboldt}
+J. M. Ortega y W. C. Rheinboldt, \emph{Iterative Solution of Nonlinear Equations in Several Variables}. Academic Press, 1970.
+
+\bibitem{Deuflhard}
+P. Deuflhard y F. Bornemann, \emph{Scientific Computing with Ordinary Differential Equations}. Springer, 2002.
+
+\bibitem{NocedalWright}
+J. Nocedal y S. J. Wright, \emph{Numerical Optimization}. Springer, 2ª ed., 2006.
+
+\bibitem{Quarteroni}
+A. Quarteroni, R. Sacco y F. Saleri, \emph{Métodos Numéricos para Ingenieros}. Springer, 2ª ed., 2007.
+\end{thebibliography}
+
+\end{document}
+
