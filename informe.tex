@@ -1,0 +1,199 @@
+\documentclass[12pt,letterpaper]{article}
+\usepackage[spanish,es-nodecimaldot]{babel}
+\usepackage[utf8]{inputenc}
+\usepackage[T1]{fontenc}
+\usepackage{lmodern}
+\usepackage{geometry}
+\geometry{margin=2.5cm}
+\usepackage{setspace}
+\onehalfspacing
+\usepackage{amsmath,amssymb,amsthm,mathtools}
+\usepackage{graphicx}
+\usepackage{booktabs}
+\usepackage{hyperref}
+\hypersetup{colorlinks=true,linkcolor=blue,citecolor=blue,urlcolor=blue}
+\usepackage{enumitem}
+
+% Entornos de teoremas en español
+\newtheorem{theorem}{Teorema}
+\newtheorem{proposition}{Proposición}
+\newtheorem{lemma}{Lema}
+\newtheorem{corollary}{Corolario}
+\theoremstyle{definition}
+\newtheorem{definition}{Definición}
+\theoremstyle{remark}
+\newtheorem{remark}{Observación}
+
+% Comandos útiles
+\newcommand{\R}{\mathbb{R}}
+\newcommand{\norm}[1]{\lVert #1\rVert}
+\newcommand{\abs}[1]{\lvert #1\rvert}
+
+\title{Aplicación del Método de Newton--Raphson para la Resolución de Sistemas No Lineales en una Malla 2D con Condiciones de Frontera}
+\author{Ervin Caravali Ibarra -- 1925648\\Juan Esteban Ortiz Bejarano -- 2410227\\Brayan Camilo Urrea Jurado -- 2410023}
+\date{\today}
+
+\begin{document}
+\maketitle
+
+\begin{abstract}
+Se presenta un desarrollo formal para resolver un sistema de ecuaciones no lineales originado de una malla 2D $5\times 50$ con condiciones de frontera prescritas, reformulado como $R(V)=0$ con $n=134$ incógnitas interiores. En lugar de resolver sistemas lineales en cada iteración, se proponen y analizan alternativas que no los requieren: iteraciones de punto fijo (Picard) basadas en reordenamientos locales del stencil, una aproximación de tipo ``Newton diagonal'' (actualización componente a componente usando solo la diagonal del Jacobiano) y descenso de gradiente aplicado a $\tfrac{1}{2}\norm{R(V)}^2$ con búsqueda de línea. Se detalla la estructura dispersa del Jacobiano, condiciones de contracción para Picard y resultados de descenso para gradiente, junto con consideraciones de complejidad y ensamblaje.
+\end{abstract}
+
+\noindent\textbf{Palabras clave:} Newton--Raphson, sistemas no lineales, discretización en malla, Jacobiano disperso, convergencia local, SPD.
+
+\section{Introducción}
+Los métodos de punto fijo y de Newton--Raphson constituyen herramientas fundamentales para la resolución de sistemas no lineales de gran escala que emergen de discretizaciones de ecuaciones diferenciales y modelos de equilibrio. En este informe se formaliza el planteamiento y la solución de un sistema no lineal definido sobre una malla rectangular $5\times 50$, con condiciones de frontera de tipo Dirichlet y una subregión rígida (``viga'') donde las variables están fijadas y no aportan incógnitas.
+
+El documento sintetiza y estructura, en formato académico, el material de trabajo disponible en la rama principal del repositorio de referencia, y provee demostraciones matemáticas formales de los resultados teóricos invocados en el proceso numérico.
+
+\section{Planteamiento del problema}
+Sea un dominio discreto $\Omega_h$ definido por índices $(i,j)$ con $j\in\{0,1,2,3,4\}$ y $i\in\{0,1,\dots,49\}$. Se modela un campo escalar de velocidades $v_{i,j}$ sometido a condiciones de frontera conocidas en el borde de $\Omega_h$ y a restricciones internas que anulan un subconjunto de nodos (``viga''). Denótese por $\mathcal{I}$ el conjunto de índices internos activos (incógnitas) y por $n:=\abs{\mathcal{I}}=134$ el número total de incógnitas luego de excluir frontera y $10$ nodos rígidos consecutivos.
+
+El problema se formula como la búsqueda de $V\in\R^{n}$ tal que
+\begin{equation}
+  R(V) = 0,\qquad R=(R_1,\dots,R_n):\R^n\to\R^n,
+\end{equation}
+donde cada residual $R_m$ corresponde a la ecuación de equilibrio asociada a un nodo interno $(i,j)\in\mathcal{I}$. En discretizaciones de tipo stencil de 5 puntos, cada $R_m$ depende a lo sumo de la variable en el nodo central y sus cuatro vecinos cartesianos.
+
+\subsection*{Parámetros del dominio discreto}
+Considérese la malla total de $5$ filas por $50$ columnas, con índices
+\[
+  j\in\{0,1,2,3,4\}, \qquad i\in\{0,1,\dots,49\}.
+\]
+Las incógnitas se restringen a la ``banda de fluido'' interior con $j\in\{1,2,3\}$ e $i\in\{1,\dots,48\}$, lo que da $3\cdot 48=144$ candidatos. Se excluye además una viga rígida de $10$ nodos consecutivos \emph{en la fila $j=1$ y columnas $i=20,\dots,29$}, por lo que el total final de incógnitas es
+\[
+  n\;=\;144\, -\,10\;=\;134.
+\]
+
+\section{Modelo matemático y discretización}
+Sin pérdida de generalidad, considérese que el modelo continuo subyacente genera, tras discretización, ecuaciones locales de la forma
+\begin{equation}
+  R_{i,j}(V)\;=\;G\!\left(v_{i,j},v_{i+1,j},v_{i-1,j},v_{i,j+1},v_{i,j-1};\,\theta\right),
+\end{equation}
+con parámetros de problema agrupados en $\theta$ (p.\,ej., paso de malla, coeficientes de transporte o viscosidad efectiva). Las condiciones de frontera fijan $v_{i,j}$ para $(i,j)\notin\mathcal{I}$, por lo que no ingresan como incógnitas.
+
+\begin{proposition}[Estructura dispersa del Jacobiano]
+Sea $R:\R^n\to\R^n$ definido por un stencil de 5 puntos. Entonces el Jacobiano $J(V):=\nabla R(V)$ tiene a lo sumo cinco entradas no nulas por fila, correspondientes a la dependencia de cada residual respecto del nodo central y sus cuatro vecinos. En particular, el grafo de adyacencia de $J$ es planar y local.
+\end{proposition}
+\begin{proof}
+Por hipótesis, cada residual $R_m$ depende de lo sumo de cinco variables: $v_{i,j}$, $v_{i\pm1,j}$ y $v_{i,j\pm1}$, donde $(i,j)$ indexa el nodo asociado a $m$. Por la regla de la cadena, las derivadas parciales $\partial R_m/\partial v_{p,q}$ son nulas para toda pareja $(p,q)$ no incluida en ese conjunto local. Por ende, en la fila $m$ de $J$ sólo pueden aparecer, en el peor caso, cinco entradas no nulas. \qedhere
+\end{proof}
+
+\subsection{Mapeo de índices y ordenamiento de variables}
+Se adopta un mapeo plano \emph{fila-columna} para transformar la dupla $(i,j)$ en un índice global $m\in\{0,\dots,133\}$. Sea
+\begin{equation}\label{eq:index-base}
+  m^{\text{base}}(i,j) \;=\; 48\,(j-1) + (i-1), \qquad j\in\{1,2,3\},\; i\in\{1,\dots,48\}.
+\end{equation}
+Si $(i,j)$ pertenece al conjunto rígido $\mathcal{S}=\{(i,1): i=20,\dots,29\}$, entonces no aporta incógnita. Para corregir el corrimiento por omisiones, se resta la cantidad de nodos omitidos \emph{anteriores} a $(i,j)$ en un orden \emph{row-major}. Denótese esta corrección por $c(i,j)$, así el índice final queda
+\begin{equation}
+  m(i,j)\;=\; m^{\text{base}}(i,j)\,-\,c(i,j),\qquad m\in\{0,\dots,133\}.
+\end{equation}
+Este mapeo asegura un vector de estado $V\in\R^{134}$ y matrices $J\in\R^{134\times134}$ consistentes sin desbordamientos de índice.
+
+\section{Métodos sin resolución de sistemas lineales}
+Buscamos actualizaciones que eviten resolver $J\Delta V=-R$. Consideramos tres estrategias:
+
+\subsection{Iteración de Picard (punto fijo)}
+Si cada ecuación local puede reordenarse como $v_{i,j}=\mathcal{T}_{i,j}(\text{vecinos};\theta)$, definimos $V^{(k+1)}=\mathcal{T}(V^{(k)})$. Bajo una condición de contracción $\norm{\mathcal{T}(U)-\mathcal{T}(W)}\le q\,\norm{U-W}$ con $q<1$, Picard converge a la solución.
+
+\subsection{Newton diagonal (actualización componente a componente)}
+Cuando el Jacobiano $J(V)$ está disponible o puede aproximarse, se realiza una actualización por componente
+\[
+  \Delta V_m\;=\; -\frac{R_m(V)}{J_{mm}(V)}\,,\qquad V^{(k+1)}\,=\,V^{(k)}+\Delta V,
+\]
+siendo $J_{mm}$ la derivada parcial de $R_m$ respecto de su propia variable. No requiere resolver el sistema completo y preserva la localidad del stencil.
+
+\subsection{Descenso de gradiente sobre $\tfrac{1}{2}\norm{R(V)}^2$}
+Definimos $\phi(V)=\tfrac{1}{2}\norm{R(V)}^2$. El gradiente es $\nabla\phi(V)=J(V)^\top R(V)$. Un paso de descenso toma la forma
+\[
+  V^{(k+1)}\,=\,V^{(k)}-\alpha_k\,\nabla\phi(V^{(k)})\,,
+\]
+con $\alpha_k$ seleccionado por búsqueda de línea (Armijo). Este método no requiere resolver sistemas lineales, solo productos Jacobiano-vector (o aproximaciones locales derivadas del stencil).
+
+\subsection{Criterios de paro}
+Se adoptan umbrales $\varepsilon_R,\varepsilon_\Delta>0$ y un máximo de iteraciones $k_{\max}$; se detiene cuando $\norm{R(V^{(k)})}\le \varepsilon_R$ o $\norm{\Delta V^{(k)}}\le\varepsilon_\Delta$.
+
+En el material base se emplean parámetros típicos como $k_{\max}=100$ y $\varepsilon_R=10^{-6}$. Adicionalmente, puede monitorearse $\norm{\Delta V^{(k)}}$ para detectar convergencia por corrección pequeña.
+
+\section{Resultados de convergencia sin resolver sistemas lineales}
+\begin{theorem}[Punto fijo de Banach para Picard]
+Sea $\mathcal{T}:\mathcal{D}\subset\R^n\to\R^n$ un operador de punto fijo tal que $\mathcal{D}$ es cerrado y convexo, y existe $q\in(0,1)$ con $\norm{\mathcal{T}(U)-\mathcal{T}(W)}\le q\,\norm{U-W}$ para todo $U,W\in\mathcal{D}$. Entonces existe un único $V^\ast\in\mathcal{D}$ con $V^\ast=\mathcal{T}(V^\ast)$ y, para cualquier $V^{(0)}\in\mathcal{D}$, la iteración $V^{(k+1)}=\mathcal{T}(V^{(k)})$ converge a $V^\ast$ con cota lineal $\norm{V^{(k)}-V^\ast}\le q^k\,\norm{V^{(0)}-V^\ast}$.
+\end{theorem}
+
+\begin{theorem}[Descenso con condición de Armijo]
+Sea $\phi(V)=\tfrac{1}{2}\norm{R(V)}^2$ con $R$ continuamente diferenciable y $\nabla\phi(V)=J(V)^\top R(V)$. Dado $V^{(k)}$ y dirección $d^{(k)}=-\nabla\phi(V^{(k)})$, la búsqueda de línea de Armijo encuentra $\alpha_k\in\{\beta^s: s=0,1,2,\dots\}$, con $\beta\in(0,1)$, tal que
+\[
+  \phi\big(V^{(k)}+\alpha_k d^{(k)}\big)\le \phi\big(V^{(k)}\big) - c\,\alpha_k\,\norm{\nabla\phi(V^{(k)})}^2,
+\]
+para alguna constante $c\in(0,1)$. En particular, $\{\phi(V^{(k)})\}$ es decreciente y cualquier punto de acumulación satisface $\nabla\phi=0$.
+\end{theorem}
+
+\section{Lineamientos de ensamblaje y estructura del Jacobiano}
+En una malla regular con stencil de 5 puntos, cada fila de $J$ contiene a lo sumo cinco entradas no nulas. El número total de no nulos escala como $\mathcal{O}(5n)$, lo que favorece el uso de formatos de almacenamiento disperso (CSR/CSC) y precondicionadores locales.
+
+\subsection{Ensamblaje del Jacobiano y del residual}
+Para cada ecuación $m\leftrightarrow (i,j)$ se computan, usando $V^{(k)}$, las derivadas parciales locales y se almacenan en formato disperso. En pseudocódigo conceptual:
+\begin{enumerate}[label=\alph*)]
+  \item Recorrer $j=1,2,3$ y $i=1,\dots,48$.
+  \item Si $(i,j)\notin \mathcal{S}$, calcular $m\leftarrow m(i,j)$.
+  \item Evaluar $R_m$ y las derivadas $\partial R_m/\partial v_{p,q}$ para $(p,q)\in\{(i,j),(i\pm1,j),(i,j\pm1)\}$ si son incógnitas; si un vecino está en frontera, su contribución pasa al término independiente.
+  \item Insertar a lo sumo 5 entradas en la fila $m$ de $J$ y el valor correspondiente en $R_m$.
+\end{enumerate}
+
+\begin{remark}[Complejidad]
+El costo de ensamblaje de $R$ y (opcionalmente) de la diagonal de $J$ es $\mathcal{O}(n)$. La actualización diagonal tiene costo $\mathcal{O}(n)$ por iteración. El descenso de gradiente requiere productos tipo $J^\top R$, que pueden calcularse de manera local por stencil con costo $\mathcal{O}(n)$.
+\end{remark}
+
+\subsection{Globalización y robustez}
+En problemas fuertemente no lineales, puede emplearse una estrategia de línea de búsqueda o \emph{damping} para asegurar descenso del residuo: buscar $\alpha\in(0,1]$ tal que
+\[
+  \norm{R\!\left(V^{(k)}+\alpha\,\Delta V^{(k)}\right)}\le (1-\eta\,\alpha)\,\norm{R\!\left(V^{(k)}\right)},\quad \eta\in(0,1).
+\]
+Esto mejora la robustez lejos de la solución y evita incrementos en la norma del residual.
+
+\section{Algoritmos prácticos sin resolver sistemas lineales}
+\noindent Dado $V^{(0)}$, tolerancias $\varepsilon_R,\varepsilon_\Delta$ y $k_{\max}$, elegir una de las siguientes estrategias:
+
+\paragraph{(A) Picard} Para $k=0,1,\dots$: construir $V^{(k+1)}=\mathcal{T}(V^{(k)})$ a partir del reordenamiento local del stencil; detener si $\norm{R(V^{(k+1)})}\le\varepsilon_R$.
+
+\paragraph{(B) Newton diagonal} Para $k=0,1,\dots$: ensamblar $R(V^{(k)})$ y $\{J_{mm}(V^{(k)})\}_{m}$; definir $\Delta V_m=-R_m/J_{mm}$ y $V^{(k+1)}=V^{(k)}+\Delta V$; detener por $\varepsilon_R$ o $\varepsilon_\Delta$.
+
+\paragraph{(C) Descenso de gradiente} Para $k=0,1,\dots$: computar $g^{(k)}=J(V^{(k)})^\top R(V^{(k)})$; elegir $\alpha_k$ por Armijo; actualizar $V^{(k+1)}=V^{(k)}-\alpha_k g^{(k)}$; detener por $\varepsilon_R$ o $\norm{g^{(k)}}\le\varepsilon_g$.
+
+\section{Aplicación a la malla $5\times50$ con 134 incógnitas}
+Conforme al material base, el dominio discreto cuenta con $250$ nodos totales, pero solo $3\times 48=144$ nodos interiores son candidatos a incógnita. Se excluye una franja rígida de $10$ nodos consecutivos (``viga''), obteniéndose $n=134$ incógnitas. El Jacobiano resultante es cuadrado $134\times134$ con a lo sumo cinco no nulos por fila.
+
+La implementación debe:
+\begin{itemize}
+  \item Indexar $\mathcal{I}$ y mapear cada par $(i,j)$ a un índice global $m$.
+  \item Ensamblar $R$ (y, de ser necesario, la diagonal de $J$ o productos locales para $J^\top R$) respetando las condiciones de frontera.
+  \item Evitar la resolución de sistemas lineales completos; preferir Picard, Newton diagonal o descenso de gradiente con búsqueda de línea.
+  \item Verificar criterios de paro y, de ser necesario, aplicar control de paso (línea de búsqueda) en problemas fuertemente no lineales.
+\end{itemize}
+
+\section{Resultados y discusión}
+Del material base se recogen parámetros operativos: $J_{\max}=3$, $I_{\max}=48$, $n=134$, $k_{\max}=100$, $\varepsilon_R=10^{-6}$. Se reporta convergencia cuando $\norm{R(V^{(k)})}\le \varepsilon_R$ y, en su caso, advertencias por corrección insignificante cuando $\norm{\Delta V^{(k)}}$ cae por debajo del umbral. Las trazas de iteración impresas confirman la evolución de $\norm{R}$ a lo largo de $k$.
+
+\section{Conclusiones}
+Se ha establecido un marco formal y reproducible para la aplicación de Newton--Raphson en sistemas no lineales discretizados sobre mallas regulares, con énfasis en: (i) formulación del residual y su Jacobiano, (ii) resultados de convergencia local de tipo Kantoróvich, y (iii) unicidad de los pasos lineales bajo condiciones verificables (dominancia diagonal o SPD). Este andamiaje teórico respalda la implementación práctica y su extensión a dominios y modelos de mayor complejidad.
+
+\section*{Agradecimientos y reproducción}
+Este informe se elaboró a partir del material disponible en la rama principal del repositorio de trabajo. Para la reproducción, se recomienda compilar este archivo con \LaTeX{} y, en su caso, integrar módulos de cómputo que ensamblen $R$ y $J$ según el modelo específico.
+
+\begin{thebibliography}{9}
+\bibitem{OrtegaRheinboldt}
+J. M. Ortega y W. C. Rheinboldt, \emph{Iterative Solution of Nonlinear Equations in Several Variables}. Academic Press, 1970.
+
+\bibitem{Deuflhard}
+P. Deuflhard y F. Bornemann, \emph{Scientific Computing with Ordinary Differential Equations}. Springer, 2002.
+
+\bibitem{NocedalWright}
+J. Nocedal y S. J. Wright, \emph{Numerical Optimization}. Springer, 2ª ed., 2006.
+
+\bibitem{Quarteroni}
+A. Quarteroni, R. Sacco y F. Saleri, \emph{Métodos Numéricos para Ingenieros}. Springer, 2ª ed., 2007.
+\end{thebibliography}
+
+\end{document}
+
