@@ -56,6 +56,16 @@ El problema se formula como la búsqueda de $V\in\R^{n}$ tal que
 \end{equation}
 donde cada residual $R_m$ corresponde a la ecuación de equilibrio asociada a un nodo interno $(i,j)\in\mathcal{I}$. En discretizaciones de tipo stencil de 5 puntos, cada $R_m$ depende a lo sumo de la variable en el nodo central y sus cuatro vecinos cartesianos.
 
+\subsection*{Parámetros del dominio discreto}
+Considérese la malla total de $5$ filas por $50$ columnas, con índices
+\[
+  j\in\{0,1,2,3,4\}, \qquad i\in\{0,1,\dots,49\}.
+\]
+Las incógnitas se restringen a la ``banda de fluido'' interior con $j\in\{1,2,3\}$ e $i\in\{1,\dots,48\}$, lo que da $3\cdot 48=144$ candidatos. Se excluye además una viga rígida de $10$ nodos consecutivos \emph{en la fila $j=1$ y columnas $i=20,\dots,29$}, por lo que el total final de incógnitas es
+\[
+  n\;=\;144\, -\,10\;=\;134.
+\]
+
 \section{Modelo matemático y discretización}
 Sin pérdida de generalidad, considérese que el modelo continuo subyacente genera, tras discretización, ecuaciones locales de la forma
 \begin{equation}
@@ -70,6 +80,17 @@ Sea $R:\R^n\to\R^n$ definido por un stencil de 5 puntos. Entonces el Jacobiano $
 Por hipótesis, cada residual $R_m$ depende de lo sumo de cinco variables: $v_{i,j}$, $v_{i\pm1,j}$ y $v_{i,j\pm1}$, donde $(i,j)$ indexa el nodo asociado a $m$. Por la regla de la cadena, las derivadas parciales $\partial R_m/\partial v_{p,q}$ son nulas para toda pareja $(p,q)$ no incluida en ese conjunto local. Por ende, en la fila $m$ de $J$ sólo pueden aparecer, en el peor caso, cinco entradas no nulas. \qedhere
 \end{proof}
 
+\subsection{Mapeo de índices y ordenamiento de variables}
+Se adopta un mapeo plano \emph{fila-columna} para transformar la dupla $(i,j)$ en un índice global $m\in\{0,\dots,133\}$. Sea
+\begin{equation}\label{eq:index-base}
+  m^{\text{base}}(i,j) \;=\; 48\,(j-1) + (i-1), \qquad j\in\{1,2,3\},\; i\in\{1,\dots,48\}.
+\end{equation}
+Si $(i,j)$ pertenece al conjunto rígido $\mathcal{S}=\{(i,1): i=20,\dots,29\}$, entonces no aporta incógnita. Para corregir el corrimiento por omisiones, se resta la cantidad de nodos omitidos \emph{anteriores} a $(i,j)$ en un orden \emph{row-major}. Denótese esta corrección por $c(i,j)$, así el índice final queda
+\begin{equation}
+  m(i,j)\;=\; m^{\text{base}}(i,j)\,-\,c(i,j),\qquad m\in\{0,\dots,133\}.
+\end{equation}
+Este mapeo asegura un vector de estado $V\in\R^{134}$ y matrices $J\in\R^{134\times134}$ consistentes sin desbordamientos de índice.
+
 \section{Método de Newton--Raphson}
 Dado un estado $V^{(k)}$, el método de Newton actualiza mediante
 \begin{equation}
@@ -79,6 +100,8 @@ El sistema lineal interno se resuelve con un método directo disperso o un itera
 
 \subsection{Criterios de paro}
 Se adoptan umbrales $\varepsilon_R,\varepsilon_\Delta>0$ y un máximo de iteraciones $k_{\max}$; se detiene cuando $\norm{R(V^{(k)})}\le \varepsilon_R$ o $\norm{\Delta V^{(k)}}\le\varepsilon_\Delta$.
+
+En el material base se emplean parámetros típicos como $k_{\max}=100$ y $\varepsilon_R=10^{-6}$. Adicionalmente, puede monitorearse $\norm{\Delta V^{(k)}}$ para detectar convergencia por corrección pequeña.
 
 \section{Convergencia local de Newton: resultados formales}
 \begin{theorem}[Kantoróvich, versión clásica]
@@ -105,9 +128,25 @@ La no singularidad implica unicidad por el Teorema de la Inversa. La estricta do
 \section{Lineamientos de ensamblaje y estructura del Jacobiano}
 En una malla regular con stencil de 5 puntos, cada fila de $J$ contiene a lo sumo cinco entradas no nulas. El número total de no nulos escala como $\mathcal{O}(5n)$, lo que favorece el uso de formatos de almacenamiento disperso (CSR/CSC) y precondicionadores locales.
 
+\subsection{Ensamblaje del Jacobiano y del residual}
+Para cada ecuación $m\leftrightarrow (i,j)$ se computan, usando $V^{(k)}$, las derivadas parciales locales y se almacenan en formato disperso. En pseudocódigo conceptual:
+\begin{enumerate}[label=\alph*)]
+  \item Recorrer $j=1,2,3$ y $i=1,\dots,48$.
+  \item Si $(i,j)\notin \mathcal{S}$, calcular $m\leftarrow m(i,j)$.
+  \item Evaluar $R_m$ y las derivadas $\partial R_m/\partial v_{p,q}$ para $(p,q)\in\{(i,j),(i\pm1,j),(i,j\pm1)\}$ si son incógnitas; si un vecino está en frontera, su contribución pasa al término independiente.
+  \item Insertar a lo sumo 5 entradas en la fila $m$ de $J$ y el valor correspondiente en $R_m$.
+\end{enumerate}
+
 \begin{remark}[Complejidad]
 El costo de ensamblaje del Jacobiano y del residual es $\mathcal{O}(n)$, dado que cada ecuación involucra un número constante de operaciones. La resolución del sistema lineal interno depende del método: directa dispersa (coste superlineal en $n$) o iterativa (cada iteración cuesta $\mathcal{O}(n)$; el número de iteraciones depende del acondicionamiento y del precondicionador).
 \end{remark}
+
+\subsection{Globalización y robustez}
+En problemas fuertemente no lineales, puede emplearse una estrategia de línea de búsqueda o \emph{damping} para asegurar descenso del residuo: buscar $\alpha\in(0,1]$ tal que
+\[
+  \norm{R\!\left(V^{(k)}+\alpha\,\Delta V^{(k)}\right)}\le (1-\eta\,\alpha)\,\norm{R\!\left(V^{(k)}\right)},\quad \eta\in(0,1).
+\]
+Esto mejora la robustez lejos de la solución y evita incrementos en la norma del residual.
 
 \section{Algoritmo}
 \noindent Dado $V^{(0)}$, tolerancias $\varepsilon_R,\varepsilon_\Delta$ y $k_{\max}$:
@@ -133,7 +172,7 @@ La implementación debe:
 \end{itemize}
 
 \section{Resultados y discusión}
-En ausencia de datos cuantitativos adicionales en este documento, se reportan lineamientos cualitativos: la convergencia de Newton se observa típicamente en pocas iteraciones cuando el punto inicial es cercano a la solución y el Jacobiano está bien condicionado. La estructura local del stencil y el tamaño moderado ($n=134$) favorecen tiempos de cómputo bajos por iteración.
+Del material base se recogen parámetros operativos: $J_{\max}=3$, $I_{\max}=48$, $n=134$, $k_{\max}=100$, $\varepsilon_R=10^{-6}$. Se reporta convergencia cuando $\norm{R(V^{(k)})}\le \varepsilon_R$ y, en su caso, advertencias por corrección insignificante cuando $\norm{\Delta V^{(k)}}$ cae por debajo del umbral. Las trazas de iteración impresas confirman la evolución de $\norm{R}$ a lo largo de $k$.
 
 \section{Conclusiones}
 Se ha establecido un marco formal y reproducible para la aplicación de Newton--Raphson en sistemas no lineales discretizados sobre mallas regulares, con énfasis en: (i) formulación del residual y su Jacobiano, (ii) resultados de convergencia local de tipo Kantoróvich, y (iii) unicidad de los pasos lineales bajo condiciones verificables (dominancia diagonal o SPD). Este andamiaje teórico respalda la implementación práctica y su extensión a dominios y modelos de mayor complejidad.
