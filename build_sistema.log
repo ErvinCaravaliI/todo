@@ -1,0 +1,75 @@
+This is pdfTeX, Version 3.141592653-2.6-1.40.26 (TeX Live 2025/dev/Debian) (preloaded format=pdflatex)
+ restricted \write18 enabled.
+entering extended mode
+(./Informe_Newton_Raphson_Sistema.tex
+LaTeX2e <2024-11-01> patch level 2
+L3 programming layer <2025-01-18>
+(/usr/share/texlive/texmf-dist/tex/latex/base/report.cls
+Document Class: report 2024/06/29 v1.4n Standard LaTeX document class
+(/usr/share/texlive/texmf-dist/tex/latex/base/size12.clo))
+(/usr/share/texlive/texmf-dist/tex/generic/babel/babel.sty
+(/usr/share/texlive/texmf-dist/tex/generic/babel/txtbabel.def)
+(/usr/share/texlive/texmf-dist/tex/generic/babel/errbabel.def)
+
+! Package babel Error: Unknown option 'spanish'. Either you misspelled it
+(babel)                or the language definition file spanish.ldf
+(babel)                was not found.
+(babel)                There is a locale ini file for this language.
+(babel)                If it’s the main language, try adding `provide=*'
+(babel)                to the babel package options.
+
+See the babel package documentation for explanation.
+Type  H <return>  for immediate help.
+ ...                                              
+                                                  
+l.4138 \ProcessOptions*
+                       
+
+! Package babel Error: Unknown option 'es-tabla'. Either you misspelled it
+(babel)                or the language definition file es-tabla.ldf
+(babel)                was not found.
+
+See the babel package documentation for explanation.
+Type  H <return>  for immediate help.
+ ...                                              
+                                                  
+l.4138 \ProcessOptions*
+                       
+(/usr/share/texlive/texmf-dist/tex/generic/babel/nil.ldf))
+(/usr/share/texlive/texmf-dist/tex/latex/base/inputenc.sty)
+(/usr/share/texlive/texmf-dist/tex/latex/base/fontenc.sty)
+(/usr/share/texlive/texmf-dist/tex/latex/geometry/geometry.sty
+(/usr/share/texlive/texmf-dist/tex/latex/graphics/keyval.sty)
+(/usr/share/texlive/texmf-dist/tex/generic/iftex/ifvtex.sty
+(/usr/share/texlive/texmf-dist/tex/generic/iftex/iftex.sty)))
+(/usr/share/texlive/texmf-dist/tex/latex/graphics/graphicx.sty
+(/usr/share/texlive/texmf-dist/tex/latex/graphics/graphics.sty
+(/usr/share/texlive/texmf-dist/tex/latex/graphics/trig.sty)
+(/usr/share/texlive/texmf-dist/tex/latex/graphics-cfg/graphics.cfg)
+(/usr/share/texlive/texmf-dist/tex/latex/graphics-def/pdftex.def)))
+(/usr/share/texlive/texmf-dist/tex/latex/caption/caption.sty
+(/usr/share/texlive/texmf-dist/tex/latex/caption/caption3.sty))
+(/usr/share/texlive/texmf-dist/tex/latex/caption/subcaption.sty)
+(/usr/share/texlive/texmf-dist/tex/latex/amsmath/amsmath.sty
+For additional information on amsmath, use the `?' option.
+(/usr/share/texlive/texmf-dist/tex/latex/amsmath/amstext.sty
+(/usr/share/texlive/texmf-dist/tex/latex/amsmath/amsgen.sty))
+(/usr/share/texlive/texmf-dist/tex/latex/amsmath/amsbsy.sty)
+(/usr/share/texlive/texmf-dist/tex/latex/amsmath/amsopn.sty))
+(/usr/share/texlive/texmf-dist/tex/latex/amsfonts/amssymb.sty
+(/usr/share/texlive/texmf-dist/tex/latex/amsfonts/amsfonts.sty))
+(/usr/share/texlive/texmf-dist/tex/latex/amscls/amsthm.sty)
+
+! LaTeX Error: File `siunitx.sty' not found.
+
+Type X to quit or <RETURN> to proceed,
+or enter new name. (Default extension: sty)
+
+Enter file name: 
+! Emergency stop.
+<read *> 
+         
+l.11 \usepackage
+                {hyperref}^^M
+!  ==> Fatal error occurred, no output PDF file produced!
+Transcript written on Informe_Newton_Raphson_Sistema.log.
