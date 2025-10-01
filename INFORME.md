@@ -1,36 +1,61 @@
-### Aplicación del método de Newton–Raphson — Informe del repositorio
+### Aplicación del método de Newton–Raphson — Informe técnico
 
 - **Autores**: Ervin Caravali Ibarra (1925648), Juan Esteban Ortiz Bejarano (2410227), Brayan Camilo Urrea Jurado (2410023)
-- **Fuente de autores**: portada de `Introducción al sistema.pdf`
 
-### Contenido del repositorio
-- `Introducción al sistema.pdf`: Documento principal con la portada y contexto del trabajo.
-- `AVANCE 2.md`: Desarrollo técnico (explicaciones, fórmulas, imágenes embebidas y código en borrador). Contiene la formulación y el esquema de implementación numérica.
-- `AVANCE 2.docx`: Versión en documento editable del avance.
+### Propósito del sistema
+- Resolver un sistema de ecuaciones no lineales para el campo de velocidades en un dominio discretizado, empleando **Newton–Raphson** hasta alcanzar equilibrio (residuales cercanos a cero).
 
-### Objetivo y enfoque del sistema
-- **Objetivo**: Resolver un sistema de ecuaciones no lineales derivado de un problema de flujo (velocidad) aplicando **Newton–Raphson** hasta alcanzar equilibrio, i.e., residuales cercanos a cero.
-- **Idea clave**: Partir de una ecuación de relajación y reescribirla como **ecuación de equilibrio** F(V) = 0. En cada iteración, se linealiza vía el **Jacobiano** J y se resuelve el sistema lineal para la corrección ΔV.
+### Paso a paso detallado (basado en las figuras del avance)
+1) Definición del dominio y malla
+   - Malla total: 5 × 50 celdas con paso h = 8.
+   - Puntos internos de fluido: j = 1..3 y i = 1..48 (se excluyen fronteras externas).
+   - Viga central inferior: en la fila j = 1, columnas i = 20..29; esos 10 nodos son fijos (sólido) y no forman parte de las incógnitas.
+   - Total de incógnitas: 134 nodos de velocidad V a resolver.
+   - Referencia visual: figuras de malla y dominio (ver imágenes del avance).
 
-### Dominio, malla y condiciones
-- **Malla**: 5 × 50 celdas (j ∈ [0,4], i ∈ [0,49]). Paso de celda reportado: h = 8.
-- **Incógnitas**: Se consideran 3 filas internas (j = 1..3) y 48 columnas internas (i = 1..48) con una viga que fija 10 nodos en j = 1, i = 20..29. Total de incógnitas: **134**.
-- **Condiciones de frontera** (valores de velocidad fijos):
-  - Suelo (j = 0): 0.0
-  - Superficie G (j = 4): V0
-  - Entrada F (i = 0): V0
-  - Salida H (i = 49): V0
-  - Viga central inferior (j = 1, i = 20..29): 0.0
+2) De ecuación de relajación a ecuación de equilibrio
+   - La ecuación base se reescribe como F(V) = 0 para imponer equilibrio en cada nodo de incógnita.
+   - El término convectivo se incluye para capturar asimetrías en i − 1 e i + 1.
+   - Objetivo: que F(V) → 0 en toda la región de incógnitas.
 
-### Formulación de Newton–Raphson
-- Se arma el vector de residuales F(V) y la matriz Jacobiana J(V) de tamaño **134 × 134** (una ecuación residual por incógnita).
-- En cada iteración k:
-  - Se evalúan F(Vᵏ) y J(Vᵏ).
-  - Se resuelve el sistema lineal esparso J(Vᵏ) · ΔV = −F(Vᵏ).
-  - Se actualiza Vᵏ⁺¹ = Vᵏ + ΔV.
-- Criterios de terminación reportados: norma de F(V) < TOL o corrección ||ΔV|| < TOL, con máximo de iteraciones.
+3) Vector de incógnitas V y vector de residuales F
+   - Se construye V apilando las velocidades de cada nodo interno según un mapeo (i, j) → índice plano m ∈ [0, 133].
+   - F tiene la misma longitud que V; cada entrada F[m] es el residual de la ecuación en el nodo correspondiente.
+   - El mapeo excluye automáticamente nodos fijos (fronteras y viga) y aplica desplazamientos por filas para mantener índices contiguos.
 
-### Parámetros principales (según `AVANCE 2.md`)
+4) Ensamblaje de F(V)
+   - Para cada nodo (i, j) incógnita, se evalúa V en el nodo central y en sus 4 vecinos (i ± 1, j) y (i, j ± 1).
+   - Residual típico (esquema de 5 puntos con convección):
+     - Término difusivo: 4·V(i,j) − V(i+1,j) − V(i−1,j) − V(i,j+1) − V(i,j−1).
+     - Término convectivo: FACTOR_CONVECCION · V(i,j) · [V(i−1,j) − V(i+1,j)].
+   - Se arma F[m] combinando ambos términos con los valores fijos cuando el vecino está en frontera o viga.
+
+5) Ensamblaje del Jacobiano J(V)
+   - Para cada ecuación (nodo m), se calculan derivadas parciales respecto a:
+     - Nodo central m: dF/dV(i,j) = 4 + FACTOR_CONVECCION·V(i−1,j) − FACTOR_CONVECCION·V(i+1,j).
+     - Vecino derecho (i+1,j): −1 − FACTOR_CONVECCION·V(i,j), si es incógnita.
+     - Vecino izquierdo (i−1,j): −1 + FACTOR_CONVECCION·V(i,j), si es incógnita.
+     - Vecino superior (i,j+1): −1, si es incógnita.
+     - Vecino inferior (i,j−1): −1, si es incógnita.
+   - Los coeficientes se colocan en las columnas correspondientes a los índices de esos vecinos; si un vecino es fijo, no genera columna pero sí aporta al término independiente de F.
+
+6) Sistema lineal y actualización
+   - En la iteración k: J(Vᵏ) · ΔV = −F(Vᵏ).
+   - Se resuelve el sistema esparso (por ejemplo, con `scipy.sparse.linalg.spsolve`).
+   - Se actualiza Vᵏ⁺¹ = Vᵏ + ΔV.
+
+7) Condiciones de frontera y sólidos
+   - Suelo (j = 0): V = 0.0.
+   - Superficie G (j = 4): V = V0.
+   - Entrada F (i = 0) y salida H (i = 49): V = V0.
+   - Viga (j = 1, i = 20..29): V = 0.0 (nodos omitidos del vector de incógnitas).
+
+8) Criterios de convergencia y control
+   - Tolerancia TOL sobre ||F|| (norma euclídea) y, de forma adicional, sobre ||ΔV|| para detectar correcciones insignificantes.
+   - Límite de iteraciones MAX_ITER.
+   - Registro por iteración: norma del residual y mensajes de convergencia/advertencia.
+
+### Parámetros principales
 - `V0 = 1.0`
 - `FACTOR_CONVECCION = 4.0`
 - `MAX_ITER = 100`
@@ -38,34 +63,15 @@
 - Tamaño de malla interna: `J_MAX = 3`, `I_MAX = 48`
 - `N_INCÓGNITAS = 134`
 
-### Estructura propuesta del código (resumen de `AVANCE 2.md`)
-- Dependencias: `numpy`, `scipy.sparse.lil_matrix`, `scipy.sparse.linalg.spsolve`.
-- Funciones clave:
-  - `get_velocidad_fija(i, j)`: Devuelve velocidad fija en fronteras y en la viga.
-  - `map_to_index(i, j)`: Mapea (i, j) → índice plano en [0, 133], gestionando omisiones por la viga y desplazamientos por filas.
-  - `get_V_value(i, j, V_k)`: Devuelve el valor de V en (i, j), usando fijo o el vector de incógnitas.
-  - `ensamblar_FJ(V_k)`: Calcula el vector de residuales F y la matriz Jacobiana J esparsa; para cada ecuación, considera nodo central y 4 vecinos, más términos convectivos.
-  - `solve_newton_raphson()`: Itera hasta convergencia, resolviendo en cada paso el sistema esparso y actualizando V.
+### Funciones y estructura sugerida de implementación
+- `get_velocidad_fija(i, j)`: devuelve valores fijos en fronteras y viga.
+- `map_to_index(i, j)`: mapea (i, j) a índice plano, gestionando omisiones y desplazamientos.
+- `get_V_value(i, j, V_k)`: obtiene V(i, j) desde V_k o desde las condiciones fijas.
+- `ensamblar_FJ(V_k)`: construye F y J considerando nodo central y vecinos.
+- `solve_newton_raphson()`: bucle de iteración, resolución del sistema y actualización.
 
-### Consideraciones y limitaciones actuales
-- El código aparece como fragmento dentro de `AVANCE 2.md` (no hay archivo `.py` independiente en el repositorio en este momento).
-- Las figuras están embebidas como imágenes/base64 dentro del Markdown.
-- Para ejecutar, es necesario extraer el código a un archivo Python y contar con `numpy` y `scipy` instalados.
-
-### Instrucciones sugeridas de ejecución
-1) Crear un archivo, por ejemplo `solver_newton_raphson.py`, copiando el código de `AVANCE 2.md`.
-2) Instalar dependencias (entorno Python 3.x):
-   - `pip install numpy scipy`
-3) Ejecutar el script:
-   - `python solver_newton_raphson.py`
-4) Verificar la salida de convergencia (norma del residual por iteración) y el vector final `V`.
-
-### Próximos pasos recomendados
-- Separar el código en módulos (`malla.py`, `fronteras.py`, `newton.py`) para mayor claridad.
-- Añadir validaciones (dimensiones, índices, límites) y pruebas unitarias.
-- Exportar resultados (por ejemplo, `CSV` o `VTK`) y agregar visualización.
-- Documentar parámetros de entrada y valores por defecto en un `README.md`.
-
----
-Este informe fue elaborado automáticamente a partir de los archivos presentes en el repositorio e incluye como autores a los indicados en la portada de `Introducción al sistema.pdf`.
+### Recomendaciones prácticas
+- Extraer el código del avance a un módulo Python y añadir pruebas sobre el mapeo de índices y los contornos.
+- Inspeccionar la estructura de J (dispersión y condicionamiento) y, si es necesario, emplear precondicionadores.
+- Exportar resultados y visualizar perfiles/secciones para validar el comportamiento cercano a la viga y a las fronteras.
 
