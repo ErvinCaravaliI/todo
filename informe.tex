@@ -37,7 +37,7 @@
 \maketitle
 
 \begin{abstract}
-Se presenta un desarrollo formal del método de Newton--Raphson para resolver un sistema de ecuaciones no lineales originado de la discretización sobre una malla 2D de dimensiones $5\times 50$ con condiciones de frontera prescritas. El problema, motivado por un modelo de transporte/flujo, se reformula como un problema de equilibrio $R(V)=0$ donde $R:\R^{n}\to\R^{n}$ es el vector de residuales e $n=134$ corresponde al número de incógnitas interiores (tras excluir nodos de frontera y una franja rígida de 10 nodos). Se detalla la estructura dispersa del Jacobiano (a lo sumo cinco entradas no nulas por fila), se establecen condiciones suficientes de convergencia local (tipo Kantoróvich) y unicidad de las soluciones de los sistemas lineales internos (dominancia diagonal o simetría definida positiva). Se discuten consideraciones de complejidad y ensamblaje, así como lineamientos de implementación reproducibles.
+Se presenta un desarrollo formal para resolver un sistema de ecuaciones no lineales originado de una malla 2D $5\times 50$ con condiciones de frontera prescritas, reformulado como $R(V)=0$ con $n=134$ incógnitas interiores. En lugar de resolver sistemas lineales en cada iteración, se proponen y analizan alternativas que no los requieren: iteraciones de punto fijo (Picard) basadas en reordenamientos locales del stencil, una aproximación de tipo ``Newton diagonal'' (actualización componente a componente usando solo la diagonal del Jacobiano) y descenso de gradiente aplicado a $\tfrac{1}{2}\norm{R(V)}^2$ con búsqueda de línea. Se detalla la estructura dispersa del Jacobiano, condiciones de contracción para Picard y resultados de descenso para gradiente, junto con consideraciones de complejidad y ensamblaje.
 \end{abstract}
 
 \noindent\textbf{Palabras clave:} Newton--Raphson, sistemas no lineales, discretización en malla, Jacobiano disperso, convergencia local, SPD.
@@ -91,39 +91,43 @@ Si $(i,j)$ pertenece al conjunto rígido $\mathcal{S}=\{(i,1): i=20,\dots,29\}$,
 \end{equation}
 Este mapeo asegura un vector de estado $V\in\R^{134}$ y matrices $J\in\R^{134\times134}$ consistentes sin desbordamientos de índice.
 
-\section{Método de Newton--Raphson}
-Dado un estado $V^{(k)}$, el método de Newton actualiza mediante
-\begin{equation}
-  J\!\left(V^{(k)}\right)\,\Delta V^{(k)} \,=\, -R\!\left(V^{(k)}\right),\qquad V^{(k+1)}\,=\,V^{(k)}+\Delta V^{(k)}.
-\end{equation}
-El sistema lineal interno se resuelve con un método directo disperso o un iterativo apropiado (p.\,ej., gradiente conjugado si $J$ es simétrica definida positiva, o métodos de Krylov generales).
+\section{Métodos sin resolución de sistemas lineales}
+Buscamos actualizaciones que eviten resolver $J\Delta V=-R$. Consideramos tres estrategias:
+
+\subsection{Iteración de Picard (punto fijo)}
+Si cada ecuación local puede reordenarse como $v_{i,j}=\mathcal{T}_{i,j}(\text{vecinos};\theta)$, definimos $V^{(k+1)}=\mathcal{T}(V^{(k)})$. Bajo una condición de contracción $\norm{\mathcal{T}(U)-\mathcal{T}(W)}\le q\,\norm{U-W}$ con $q<1$, Picard converge a la solución.
+
+\subsection{Newton diagonal (actualización componente a componente)}
+Cuando el Jacobiano $J(V)$ está disponible o puede aproximarse, se realiza una actualización por componente
+\[
+  \Delta V_m\;=\; -\frac{R_m(V)}{J_{mm}(V)}\,,\qquad V^{(k+1)}\,=\,V^{(k)}+\Delta V,
+\]
+siendo $J_{mm}$ la derivada parcial de $R_m$ respecto de su propia variable. No requiere resolver el sistema completo y preserva la localidad del stencil.
+
+\subsection{Descenso de gradiente sobre $\tfrac{1}{2}\norm{R(V)}^2$}
+Definimos $\phi(V)=\tfrac{1}{2}\norm{R(V)}^2$. El gradiente es $\nabla\phi(V)=J(V)^\top R(V)$. Un paso de descenso toma la forma
+\[
+  V^{(k+1)}\,=\,V^{(k)}-\alpha_k\,\nabla\phi(V^{(k)})\,,
+\]
+con $\alpha_k$ seleccionado por búsqueda de línea (Armijo). Este método no requiere resolver sistemas lineales, solo productos Jacobiano-vector (o aproximaciones locales derivadas del stencil).
 
 \subsection{Criterios de paro}
 Se adoptan umbrales $\varepsilon_R,\varepsilon_\Delta>0$ y un máximo de iteraciones $k_{\max}$; se detiene cuando $\norm{R(V^{(k)})}\le \varepsilon_R$ o $\norm{\Delta V^{(k)}}\le\varepsilon_\Delta$.
 
 En el material base se emplean parámetros típicos como $k_{\max}=100$ y $\varepsilon_R=10^{-6}$. Adicionalmente, puede monitorearse $\norm{\Delta V^{(k)}}$ para detectar convergencia por corrección pequeña.
 
-\section{Convergencia local de Newton: resultados formales}
-\begin{theorem}[Kantoróvich, versión clásica]
-Sea $R:\mathcal{D}\subset\R^n\to\R^n$ continuamente diferenciable en un dominio convexo $\mathcal{D}$, con Jacobiano $J(V)$ Lipschitz continuo en $\mathcal{D}$ con constante $L$. Supóngase que existe $V^{(0)}\in\mathcal{D}$ tal que $J(V^{(0)})$ es invertible y
-\begin{equation}
-  \gamma\;:=\;\big\|J(V^{(0)})^{-1}R(V^{(0)})\big\|,\qquad M\;:=\;\sup_{U\in\mathcal{D}}\norm{J(U)^{-1}},\qquad \text{con }\; LM\gamma\,\le\,\tfrac{1}{2}.
-\end{equation}
-Entonces la secuencia de Newton está bien definida, permanece en $\mathcal{D}$ y converge a una solución $V^\ast$ de $R(V)=0$. Además, el error satisface la cota
-\begin{equation}
-  \norm{V^{(k)}-V^\ast}\;\le\;\frac{(1-\sqrt{1-2LM\gamma})^{2^k}}{L M}\,\,\quad\text{(convergencia cuasi-cuadrática)}.
-\end{equation}
+\section{Resultados de convergencia sin resolver sistemas lineales}
+\begin{theorem}[Punto fijo de Banach para Picard]
+Sea $\mathcal{T}:\mathcal{D}\subset\R^n\to\R^n$ un operador de punto fijo tal que $\mathcal{D}$ es cerrado y convexo, y existe $q\in(0,1)$ con $\norm{\mathcal{T}(U)-\mathcal{T}(W)}\le q\,\norm{U-W}$ para todo $U,W\in\mathcal{D}$. Entonces existe un único $V^\ast\in\mathcal{D}$ con $V^\ast=\mathcal{T}(V^\ast)$ y, para cualquier $V^{(0)}\in\mathcal{D}$, la iteración $V^{(k+1)}=\mathcal{T}(V^{(k)})$ converge a $V^\ast$ con cota lineal $\norm{V^{(k)}-V^\ast}\le q^k\,\norm{V^{(0)}-V^\ast}$.
 \end{theorem}
-\begin{proof}
-La demostración estándar emplea el mapeo de Newton $\Phi(V)=V-J(V)^{-1}R(V)$ y verifica que, bajo $LM\gamma\le 1/2$, $\Phi$ es una contracción en una bola centrada en $V^{(0)}$ contenida en $\mathcal{D}$. El Lema de Inversa y la continuidad Lipschitz de $J$ garantizan la acotación de $\norm{J(U)^{-1}}$ en dicha bola. Aplicando el Teorema del Punto Fijo de Banach se obtiene existencia y unicidad del punto fijo $V^\ast$ de $\Phi$, que es solución de $R(V)=0$. Las cotas de error se derivan por técnicas estándar (ver, por ejemplo, Ortega y Rheinboldt). \qedhere
-\end{proof}
 
-\begin{proposition}[Unicidad del paso lineal]
-Si, para un $k$ dado, la matriz $J\!\left(V^{(k)}\right)$ es no singular, entonces el sistema lineal del paso de Newton admite una única solución $\Delta V^{(k)}$. En particular, si $J\!\left(V^{(k)}\right)$ es estrictamente diagonalmente dominante por filas o simétrica definida positiva, la solución es única.
-\end{proposition}
-\begin{proof}
-La no singularidad implica unicidad por el Teorema de la Inversa. La estricta dominancia diagonal (criterio de Levy--Desplanques) garantiza no singularidad. Alternativamente, si $J$ es simétrica definida positiva, entonces induce un producto interno y \emph{toda} forma lineal $b$ define un único $\Delta V$ que satisface $J\Delta V=b$ (Lema de Lax--Milgram para matrices finito-dimensionales). \qedhere
-\end{proof}
+\begin{theorem}[Descenso con condición de Armijo]
+Sea $\phi(V)=\tfrac{1}{2}\norm{R(V)}^2$ con $R$ continuamente diferenciable y $\nabla\phi(V)=J(V)^\top R(V)$. Dado $V^{(k)}$ y dirección $d^{(k)}=-\nabla\phi(V^{(k)})$, la búsqueda de línea de Armijo encuentra $\alpha_k\in\{\beta^s: s=0,1,2,\dots\}$, con $\beta\in(0,1)$, tal que
+\[
+  \phi\big(V^{(k)}+\alpha_k d^{(k)}\big)\le \phi\big(V^{(k)}\big) - c\,\alpha_k\,\norm{\nabla\phi(V^{(k)})}^2,
+\]
+para alguna constante $c\in(0,1)$. En particular, $\{\phi(V^{(k)})\}$ es decreciente y cualquier punto de acumulación satisface $\nabla\phi=0$.
+\end{theorem}
 
 \section{Lineamientos de ensamblaje y estructura del Jacobiano}
 En una malla regular con stencil de 5 puntos, cada fila de $J$ contiene a lo sumo cinco entradas no nulas. El número total de no nulos escala como $\mathcal{O}(5n)$, lo que favorece el uso de formatos de almacenamiento disperso (CSR/CSC) y precondicionadores locales.
@@ -138,7 +142,7 @@ Para cada ecuación $m\leftrightarrow (i,j)$ se computan, usando $V^{(k)}$, las 
 \end{enumerate}
 
 \begin{remark}[Complejidad]
-El costo de ensamblaje del Jacobiano y del residual es $\mathcal{O}(n)$, dado que cada ecuación involucra un número constante de operaciones. La resolución del sistema lineal interno depende del método: directa dispersa (coste superlineal en $n$) o iterativa (cada iteración cuesta $\mathcal{O}(n)$; el número de iteraciones depende del acondicionamiento y del precondicionador).
+El costo de ensamblaje de $R$ y (opcionalmente) de la diagonal de $J$ es $\mathcal{O}(n)$. La actualización diagonal tiene costo $\mathcal{O}(n)$ por iteración. El descenso de gradiente requiere productos tipo $J^\top R$, que pueden calcularse de manera local por stencil con costo $\mathcal{O}(n)$.
 \end{remark}
 
 \subsection{Globalización y robustez}
@@ -148,17 +152,14 @@ En problemas fuertemente no lineales, puede emplearse una estrategia de línea d
 \]
 Esto mejora la robustez lejos de la solución y evita incrementos en la norma del residual.
 
-\section{Algoritmo}
-\noindent Dado $V^{(0)}$, tolerancias $\varepsilon_R,\varepsilon_\Delta$ y $k_{\max}$:
-\begin{enumerate}[label=\arabic*.]
-  \item Para $k=0,1,\dots,k_{\max}$:
-  \begin{enumerate}[label=\alph*)]
-    \item Ensamblar $R\!\left(V^{(k)}\right)$ y $J\!\left(V^{(k)}\right)$.
-    \item Resolver $J\!\left(V^{(k)}\right)\,\Delta V^{(k)}=-R\!\left(V^{(k)}\right)$.
-    \item Actualizar $V^{(k+1)}=V^{(k)}+\Delta V^{(k)}$.
-    \item Si $\norm{R(V^{(k+1)})}\le\varepsilon_R$ o $\norm{\Delta V^{(k)}}\le\varepsilon_\Delta$, detener.
-  \end{enumerate}
-\end{enumerate}
+\section{Algoritmos prácticos sin resolver sistemas lineales}
+\noindent Dado $V^{(0)}$, tolerancias $\varepsilon_R,\varepsilon_\Delta$ y $k_{\max}$, elegir una de las siguientes estrategias:
+
+\paragraph{(A) Picard} Para $k=0,1,\dots$: construir $V^{(k+1)}=\mathcal{T}(V^{(k)})$ a partir del reordenamiento local del stencil; detener si $\norm{R(V^{(k+1)})}\le\varepsilon_R$.
+
+\paragraph{(B) Newton diagonal} Para $k=0,1,\dots$: ensamblar $R(V^{(k)})$ y $\{J_{mm}(V^{(k)})\}_{m}$; definir $\Delta V_m=-R_m/J_{mm}$ y $V^{(k+1)}=V^{(k)}+\Delta V$; detener por $\varepsilon_R$ o $\varepsilon_\Delta$.
+
+\paragraph{(C) Descenso de gradiente} Para $k=0,1,\dots$: computar $g^{(k)}=J(V^{(k)})^\top R(V^{(k)})$; elegir $\alpha_k$ por Armijo; actualizar $V^{(k+1)}=V^{(k)}-\alpha_k g^{(k)}$; detener por $\varepsilon_R$ o $\norm{g^{(k)}}\le\varepsilon_g$.
 
 \section{Aplicación a la malla $5\times50$ con 134 incógnitas}
 Conforme al material base, el dominio discreto cuenta con $250$ nodos totales, pero solo $3\times 48=144$ nodos interiores son candidatos a incógnita. Se excluye una franja rígida de $10$ nodos consecutivos (``viga''), obteniéndose $n=134$ incógnitas. El Jacobiano resultante es cuadrado $134\times134$ con a lo sumo cinco no nulos por fila.
@@ -166,8 +167,8 @@ Conforme al material base, el dominio discreto cuenta con $250$ nodos totales, p
 La implementación debe:
 \begin{itemize}
   \item Indexar $\mathcal{I}$ y mapear cada par $(i,j)$ a un índice global $m$.
-  \item Ensamblar $R$ y $J$ respetando las condiciones de frontera.
-  \item Emplear almacenamiento disperso y un solucionador lineal adecuado.
+  \item Ensamblar $R$ (y, de ser necesario, la diagonal de $J$ o productos locales para $J^\top R$) respetando las condiciones de frontera.
+  \item Evitar la resolución de sistemas lineales completos; preferir Picard, Newton diagonal o descenso de gradiente con búsqueda de línea.
   \item Verificar criterios de paro y, de ser necesario, aplicar control de paso (línea de búsqueda) en problemas fuertemente no lineales.
 \end{itemize}
 
