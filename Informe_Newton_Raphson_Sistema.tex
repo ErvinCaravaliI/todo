@@ -1,0 +1,287 @@
+\documentclass[12pt,a4paper]{report}
+\usepackage[spanish,es-tabla]{babel}
+\usepackage[utf8]{inputenc}
+\usepackage[T1]{fontenc}
+\usepackage{geometry}
+\usepackage{graphicx}
+\usepackage{caption}
+\usepackage{subcaption}
+\usepackage{amsmath, amssymb, amsthm}
+\usepackage{siunitx}
+\usepackage{hyperref}
+\usepackage{xcolor}
+\usepackage{listings}
+\usepackage{booktabs}
+\usepackage{enumitem}
+\usepackage{float}
+\geometry{margin=1in}
+\hypersetup{colorlinks=true,linkcolor=blue,urlcolor=blue,citecolor=blue}
+
+\definecolor{codebg}{RGB}{245,245,245}
+\lstdefinestyle{mypython}{
+  language=Python,
+  basicstyle=\ttfamily\small,
+  backgroundcolor=\color{codebg},
+  frame=single,
+  showstringspaces=false,
+  keywordstyle=\color{blue!60!black},
+  commentstyle=\color{green!40!black},
+  stringstyle=\color{red!60!black},
+  numbers=left,
+  numberstyle=\tiny, 
+  stepnumber=1,
+  numbersep=8pt,
+  tabsize=2,
+  breaklines=true,
+  keepspaces=true
+}
+
+\theoremstyle{definition}
+\newtheorem{definition}{Definición}
+\newtheorem{remark}{Observación}
+
+\begin{document}
+
+% Portada
+\begin{titlepage}
+  \centering
+  {\Large Informe Académico}\par\vspace{0.75cm}
+  {\LARGE Aplicación del Método de Newton--Raphson en la solución de sistemas de ecuaciones no lineales\par}
+  \vspace{0.75cm}
+  {\large Basado en `Introducción al sistema.pdf`, `AVANCE 2.md` y `AVANCE 2.docx`}\par
+  \vspace{1.25cm}
+  {\large Autores (según `Introducción al sistema.pdf`):\par}
+  \vspace{0.25cm}
+  {\large Ervin Caravali Ibarra — 1925648\par}
+  {\large Juan Esteban Ortiz Bejarano — 2410227\par}
+  {\large Brayan Camilo Urrea Jurado — 2410023\par}
+  \vfill
+  {\large Fecha: \today}\par
+\end{titlepage}
+
+\begin{abstract}
+Se presenta una formulación y resolución numérica mediante el método de Newton--Raphson de un sistema de ecuaciones no lineales definido sobre una malla de tamaño \(5\times 50\). Tras imponer condiciones de frontera y omitir los nodos correspondientes a una viga interna, el problema resultante involucra \(134\) incógnitas. Se detalla la construcción del residual \(F(V)\), el ensamblaje del jacobiano esparso \(J=\partial F/\partial V\), el esquema iterativo, consideraciones de convergencia y una implementación en Python con \texttt{numpy} y \texttt{scipy.sparse}. Se incluyen figuras provenientes de `Introducción al sistema.pdf`.
+\end{abstract}
+
+\tableofcontents
+\clearpage
+
+\chapter{Introducción}
+El método de Newton--Raphson (NR) es una técnica de punto fijo con convergencia local típicamente cuadrática para resolver sistemas no lineales \(F(V)=0\). En este trabajo, \(V\in\mathbb{R}^{N}\) recopila las velocidades en los nodos internos de una malla bidimensional con condiciones de borde prescritas y una viga interna. A partir del documento `Introducción al sistema.pdf` se ilustran la formulación del residual y las derivadas para el jacobiano; `AVANCE 2.md` y `AVANCE 2.docx` aportan la implementación.
+
+\begin{figure}[H]
+  \centering
+  \includegraphics[width=0.95\textwidth]{intro_img-000.png}
+  \caption{Portada y créditos (extraída de `Introducción al sistema.pdf`).}
+\end{figure}
+
+\section{Contexto del problema}
+La malla total tiene \(5\) filas y \(50\) columnas (\(250\) nodos). Tras excluir fronteras y los 10 nodos de una viga (en \(j=1\), \(i\in[20,29]\)), el número de incógnitas es \(144-10=134\). Cada incógnita induce una ecuación en el residual, por lo que \(F: \mathbb{R}^{134}\to\mathbb{R}^{134}\).
+
+\begin{figure}[H]
+  \centering
+  \includegraphics[width=0.95\textwidth]{intro_img-001.png}
+  \caption{Formulación de \(F(V)\) y conteo de incógnitas (extraída de `Introducción al sistema.pdf`).}
+\end{figure}
+
+\chapter{Formulación matemática}
+\section{Notación y discretización}
+Sea \(V_{i,j}\) la velocidad en el nodo interior \((i,j)\). Se considera un operador tipo laplaciano (difusión) y términos convectivos no lineales en la dirección \(i\). La ecuación de equilibrio local se escribe como \(F_{m}(V)=0\), donde \(m\) es el índice plano de \((i,j)\) siguiendo un mapeo que omite fronteras y la viga.
+
+\subsection{Residual en un nodo interior}
+Para \((i,j)\) interior, el residual empleado (según `AVANCE 2.md`) es
+\begin{equation}
+\label{eq:residual}
+\small
+F_{m}(V) \;=\; 4\,V_{i,j}
+\; -\; \bigl( V_{i+1,j} + V_{i-1,j} + V_{i,j+1} + V_{i,j-1} \bigr)
+\; +\; c\,V_{i,j}\,V_{i-1,j}
+\; -\; c\,V_{i,j}\,V_{i+1,j},
+\end{equation}
+con \(c=\) FACTOR\_CONVECCION.
+
+\subsection{Condiciones de frontera y viga}
+En los nodos de frontera (suelo, superficie, entrada, salida) y en la viga inferior (\(j=1\), \(i\in[20,29]\)) \(V\) es fijo (Dirichlet), por lo que dichos nodos no pertenecen al vector de incógnitas y se incorporan mediante la función \(\texttt{get\_velocidad\_fija}(i,j)\).
+
+\section{Mapeo de índices}
+Se define \(\texttt{map\_to\_index}(i,j)\) que \emph{omite} fronteras y viga, y asigna un índice \(m\in\{0,\dots,133\}\) a cada nodo interior. Esto garantiza que no se produzcan accesos fuera de rango y mantiene la estructura esparsa de \(J\).
+
+\section{Jacobiano}
+Derivando \eqref{eq:residual} respecto de las variables relevantes se obtiene, para el nodo central y vecinos:
+\begin{align*}
+\frac{\partial F_m}{\partial V_{i,j}} \;&=\; 4 \; +\; c\,V_{i-1,j} \; -\; c\,V_{i+1,j},\\
+\frac{\partial F_m}{\partial V_{i+1,j}} \;&=\; -1 \; -\; c\,V_{i,j},\\
+\frac{\partial F_m}{\partial V_{i-1,j}} \;&=\; -1 \; +\; c\,V_{i,j},\\
+\frac{\partial F_m}{\partial V_{i,j+1}} \;&=\; -1, \qquad
+\frac{\partial F_m}{\partial V_{i,j-1}} \;=\; -1.
+\end{align*}
+Estas derivadas llenan una fila esparsa de \(J\) en las columnas correspondientes a \(m\) y a los índices planos de los vecinos cuando éstos son incógnitas (no fijos).
+
+\begin{figure}[H]
+  \centering
+  \includegraphics[width=0.95\textwidth]{intro_img-002.png}
+  \caption{Derivadas parciales empleadas para el Jacobiano (extraída de `Introducción al sistema.pdf`).}
+\end{figure}
+
+\chapter{Método de Newton--Raphson}
+Dado \(V^{(k)}\), el paso de NR resuelve el sistema lineal
+\begin{equation*}
+J(V^{(k)})\,\Delta V^{(k)} \;=\; -F(V^{(k)}),\qquad
+V^{(k+1)} \;=\; V^{(k)} + \Delta V^{(k)}.
+\end{equation*}
+\section{Algoritmo (pseudocódigo)}
+\begin{enumerate}[label=\arabic*.]
+  \item Inicializar \(V^{(0)}\) (p.ej., valores constantes en nodos internos).
+  \item Para \(k=0,1,\dots\) hasta convergencia:
+  \begin{enumerate}[label=\alph*)]
+    \item Ensamblar \(F(V^{(k)})\) y \(J(V^{(k)})\).
+    \item Resolver \(J\,\Delta V = -F\) con solver esparso.
+    \item Actualizar \(V^{(k+1)} = V^{(k)} + \Delta V\).
+    \item Parar si \(\|F\|\) y/o \(\|\Delta V\|\) \(\leq\) tolerancia.
+  \end{enumerate}
+\end{enumerate}
+
+\begin{figure}[H]
+  \centering
+  \includegraphics[width=0.95\textwidth]{intro_img-003.png}
+  \caption{Esquema de NR y derivadas (extraída de `Introducción al sistema.pdf`).}
+\end{figure}
+
+\section{Convergencia y robustez}
+NR presenta convergencia local cuadrática bajo: (i) buena inicialización cerca de la raíz, (ii) jacobiano no singular en la solución. En problemas convectivos-fuertes puede introducirse \emph{damping} \(V^{(k+1)}=V^{(k)}+\lambda\,\Delta V\), \(\lambda\in(0,1]\), o búsqueda lineal para robustecer.
+
+\chapter{Implementación (Python)}
+\section{Funciones de frontera, mapeo y acceso}
+\begin{lstlisting}[style=mypython]
+import numpy as np
+from scipy.sparse import lil_matrix, linalg
+
+J_MAX = 3
+I_MAX = 48
+N_INCÓGNITAS = 134
+V0 = 1.0
+FACTOR_CONVECCION = 4.0
+
+def get_velocidad_fija(i, j):
+    if (j == 1 and i in range(20, 30)):
+        return 0.0
+    if j == 0:
+        return 0.0
+    if j == 4:
+        return V0
+    if i == 0:
+        return V0
+    if i == 49:
+        return 0.0
+    return None
+
+def map_to_index(i, j):
+    if get_velocidad_fija(i, j) is not None:
+        return -1
+    base_index_j = 48 * (j - 1)
+    index_i = i - 1
+    desplazamiento_viga = 0
+    if j == 1:
+        if i >= 30:
+            desplazamiento_viga = 10
+        elif 20 <= i <= 29:
+            return -1
+    if j > 1:
+        if j == 2:
+            base_index_j = 38
+        elif j == 3:
+            base_index_j = 86
+    final_index = base_index_j + index_i - desplazamiento_viga
+    if final_index >= N_INCÓGNITAS or final_index < 0:
+        return -1
+    return final_index
+
+def get_V_value(i, j, V_k):
+    val = get_velocidad_fija(i, j)
+    if val is not None:
+        return val
+    idx = map_to_index(i, j)
+    if idx != -1:
+        return V_k[idx]
+    return 0.0
+\end{lstlisting}
+
+\section{Ensamblaje del residual y jacobiano}
+\begin{lstlisting}[style=mypython]
+def ensamblar_FJ(V_k):
+    J = lil_matrix((N_INCÓGNITAS, N_INCÓGNITAS), dtype=np.float64)
+    F = np.zeros(N_INCÓGNITAS)
+
+    for j in range(1, J_MAX + 1):
+        for i in range(1, I_MAX + 1):
+            m = map_to_index(i, j)
+            if m == -1:
+                continue
+
+            V_ij   = V_k[m]
+            V_ip1j = get_V_value(i + 1, j, V_k)
+            V_im1j = get_V_value(i - 1, j, V_k)
+            V_ijp1 = get_V_value(i, j + 1, V_k)
+            V_ijm1 = get_V_value(i, j - 1, V_k)
+
+            F[m] = (4.0 * V_ij
+                    - (V_ip1j + V_im1j + V_ijp1 + V_ijm1)
+                    + (FACTOR_CONVECCION * V_ij * V_im1j)
+                    - (FACTOR_CONVECCION * V_ij * V_ip1j))
+
+            J[m, m] = 4.0 + (FACTOR_CONVECCION * V_im1j) - (FACTOR_CONVECCION * V_ip1j)
+            n_der = map_to_index(i + 1, j)
+            if n_der != -1:
+                J[m, n_der] = -1.0 - (FACTOR_CONVECCION * V_ij)
+            n_izq = map_to_index(i - 1, j)
+            if n_izq != -1:
+                J[m, n_izq] = -1.0 + (FACTOR_CONVECCION * V_ij)
+            n_arr = map_to_index(i, j + 1)
+            if n_arr != -1:
+                J[m, n_arr] = -1.0
+            n_aba = map_to_index(i, j - 1)
+            if n_aba != -1:
+                J[m, n_aba] = -1.0
+
+    return J.tocsr(), F
+\end{lstlisting}
+
+\section{Bucle de Newton--Raphson}
+\begin{lstlisting}[style=mypython]
+def solve_newton_raphson():
+    V_k = np.ones(N_INCÓGNITAS) * V0
+    MAX_ITER = 100
+    TOL = 1e-6
+
+    for k in range(MAX_ITER):
+        J_sp, F_vec = ensamblar_FJ(V_k)
+        res_norm = np.linalg.norm(F_vec)
+        if res_norm < TOL:
+            break
+        Delta_V = linalg.spsolve(J_sp, -F_vec)
+        V_k += Delta_V
+        if np.linalg.norm(Delta_V) < TOL:
+            break
+    return V_k
+\end{lstlisting}
+
+\paragraph{Complejidad y esparsidad.} \(J\) es \(134\times 134\) con como mucho 5 entradas no nulas por fila (menos en filas cercanas a fronteras/viga). Se recomienda un formato esparso (LIL/CSR) y un solver directo esparso o \emph{preconditioned Krylov} si escala el tamaño de la malla.
+
+\chapter{Validación y buenas prácticas}
+\begin{itemize}
+  \item \textbf{Validación de derivadas}: comparar \(J\) analítico contra diferencias finitas en algunos nodos.
+  \item \textbf{Parámetros}: registrar \(\|F\|\) y \(\|\Delta V\|\) por iteración; parametrizar \(\texttt{TOL}\) y \(\texttt{MAX\_ITER}\).
+  \item \textbf{Robustez}: emplear \emph{damping}/búsqueda lineal ante no convergencia.
+  \item \textbf{Visualización}: rearmar \(V\) en malla y graficar contornos/campo de velocidades.
+\end{itemize}
+
+\chapter{Conclusiones}
+Se integró la formulación, derivación del jacobiano, algoritmo NR e implementación esparsa en Python para un sistema no lineal con 134 incógnitas. Las figuras de `Introducción al sistema.pdf` contextualizan la formulación y el conteo de incógnitas; el código de `AVANCE 2.md`/`AVANCE 2.docx` demuestra una implementación coherente y reproducible.
+
+\chapter*{Archivos de referencia}
+\begin{itemize}
+  \item Documento visual: \texttt{Introducción al sistema.pdf} (figuras incluidas).
+  \item Descripción y código: \texttt{AVANCE 2.md}, \texttt{AVANCE 2.docx}.
+\end{itemize}
+
+\end{document}
